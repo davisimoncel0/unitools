@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UniTools</title>
+  <!-- Bibliotecas para DOCX e PPTX (renderização local, sem upload) -->
+  <link rel="stylesheet" href="https://unpkg.com/pptxjs@2.15.0/dist/pptxjs.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/nvd3@1.8.6/build/nv.d3.min.css">
+  <script src="https://unpkg.com/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- Dependências do pptxjs para gráficos/shape rendering -->
+  <script src="https://unpkg.com/d3@3.5.17/d3.min.js"></script>
+  <script src="https://unpkg.com/nvd3@1.8.6/build/nv.d3.min.js"></script>
+  <script src="https://unpkg.com/pptxjs@2.15.0/dist/pptxjs.min.js"></script>
+  <script src="https://unpkg.com/pptxjs@2.15.0/dist/divs2slides.min.js"></script>
+  <script src="https://unpkg.com/docx-preview@0.3.1/dist/docx-preview.min.js"></script>
+<style>
+:root { --bg:#ffffff; --card:#f9f9f9; --muted:#5e6678; --text:#0e1220; --primary:#2a6df4; --ring:#e0e4ec; --shadow:0 10px 30px rgba(0,0,0,.08); --radius:16px; }
+*{ box-sizing:border-box }
+body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial; background:var(--bg); color:var(--text) }
+.wrap{ max-width:1100px; margin:32px auto; padding:0 20px }
+.header{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; margin-bottom:8px; text-align:center }
+.logo{ display:block; max-width:180px; height:auto }
+.subtitle{ color:var(--muted); margin:8px 0 22px; font-size:15px; text-align:center }
+.card{ background:var(--card); border:1px solid var(--ring); border-radius:16px; box-shadow:var(--shadow); padding:16px; margin-top:18px }
+.row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.input{ flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--ring); background:transparent; color:var(--text); font-size:16px; outline:none }
+.btn{ padding:12px 16px; border-radius:12px; border:1px solid color-mix(in oklab, var(--primary) 60%, transparent); background:linear-gradient(180deg, color-mix(in oklab, var(--primary) 12%, #fff0), color-mix(in oklab, var(--primary) 8%, #0000)); color:var(--text); font-weight:700; cursor:pointer }
+.btn.small{ padding:8px 12px; border-radius:10px; font-weight:600 }
+.btn.secondary{ background:transparent; border-style:dashed; color:var(--muted) }
+.player{ width:100%; height:540px; border:none; border-radius:14px; background:#000; margin-top:12px }
+.doc-box{ width:100%; height:74vh; min-height:520px; border:none; border-radius:14px; background:#111; margin-top:12px }
+.drop-zone{ border:2px dashed var(--ring); border-radius:14px; padding:22px; text-align:center; color:var(--muted); background:#fff }
+.drop-zone.drag{ border-color:var(--primary); background: color-mix(in oklab, var(--primary) 8%, #fff); color:var(--text) }
+.notes-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px; margin-top:12px }
+.note-card{ background:#fff; border:1px solid var(--ring); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px }
+.note-title{ font-weight:700; font-size:15px }
+.note-body{ white-space:pre-wrap; color:var(--text); font-size:14px }
+.note-meta{ color:var(--muted); font-size:12px }
+.note-actions{ display:flex; gap:8px; margin-top:6px }
+.timer{ font-variant-numeric: tabular-nums; font-weight:700 }
+.hidden{ display:none }
+.footer{ text-align:center; color:var(--muted); font-size:12px; margin:24px 0 }
+
+/* === PDF em tela cheia: faz preencher 100% da tela === */
+#pdfWrap:fullscreen,
+#pdfWrap:-webkit-full-screen,
+#pdfWrap:-ms-fullscreen { width:100vw; height:100vh; margin:0; padding:0; border-radius:0; }
+#pdfWrap:fullscreen #pdfViewer,
+#pdfWrap:-webkit-full-screen #pdfViewer,
+#pdfWrap:-ms-fullscreen #pdfViewer { width:100vw; height:100vh; border-radius:0; }
+#pdfViewer { transition: height .2s ease, width .2s ease; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <img src="./assets/logo.png" alt="Logo" class="logo" />
+    </div>
+    <p class="subtitle"><strong>UniTools</strong> — Organize com sua caixa de ferramentas para aprendizagem</p>
+
+    <!-- YouTube -->
+    <section class="card">
+      <h2>YouTube</h2>
+      <div class="row">
+        <input id="ytUrl" class="input" placeholder="Link do YouTube (watch?v=, youtu.be, shorts, live, embed ou ID)" />
+        <button class="btn" id="playBtn">Reproduzir</button>
+        <button class="btn secondary" id="clearYT">Limpar</button>
+      </div>
+      <iframe id="ytPlayer" class="player" title="Player YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+      <p id="ytError" class="hint hidden">Não consegui identificar o ID do vídeo. Verifique o link.</p>
+    </section>
+
+    <!-- Documentos -->
+    <section class="card">
+      <h2>Documentos (PDF, DOCX, PPTX)</h2>
+      <div class="row">
+        <input id="fileInput" type="file" accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation" class="hidden" />
+        <button class="btn" id="fileBtn">Importar do dispositivo</button>
+        <button class="btn secondary" id="clearFile">Limpar</button>
+        <button class="btn" id="pdfFullBtn">Tela cheia PDF</button>
+        <span id="fileName" class="badge">Nenhum arquivo</span>
+      </div>
+      <div id="dropZone" class="drop-zone" style="margin-top:10px">Arraste e solte aqui um <strong>PDF</strong>, <strong>DOCX</strong> ou <strong>PPTX</strong>.</div>
+      <div id="pdfWrap">
+        <iframe id="pdfViewer" class="doc-box" style="display:none"></iframe>
+      </div>
+      <div id="docxViewer" class="doc-box" style="display:none; overflow:auto; padding:12px"></div>
+      <div id="pptxViewer" class="doc-box" style="display:none; overflow:auto"></div>
+      <div class="hint" id="openWrap" style="margin-top:8px; display:none;">Se não abrir, <a id="openLink" target="_blank" rel="noopener">abrir em nova aba</a>.</div>
+    </section>
+
+    <!-- Notas -->
+    <section class="card">
+      <h2>Notas</h2>
+      <div class="row" style="margin-bottom:10px">
+        <input id="noteTitle" class="input" placeholder="Título da nota" />
+        <button class="btn" id="addNoteBtn">Adicionar nota</button>
+      </div>
+      <textarea id="noteBody" class="input" style="min-height:120px" placeholder="Conteúdo da nota..."></textarea>
+      <div class="row" style="margin-top:10px">
+        <span id="notesCount" class="badge">0 notas</span>
+        <button class="btn small" id="exportNotes">Exportar .json</button>
+        <button class="btn small secondary" id="clearNotes">Limpar todas</button>
+      </div>
+      <div id="notesGrid" class="notes-grid"></div>
+    </section>
+
+    <!-- Quiz -->
+    <section class="card">
+      <h2>Quiz</h2>
+      <div id="quizBuilder">
+        <div class="row" style="margin-bottom:10px">
+          <input id="qbQuestion" class="input" placeholder="Pergunta" />
+          <input id="qbAnswer" class="input" placeholder="Resposta correta" />
+          <button class="btn" id="qbAdd">Adicionar pergunta</button>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <label class="badge">Tempo por questão (s)
+            <input id="qbTime" type="number" min="5" max="600" value="30" class="input" style="width:120px" />
+          </label>
+          <label class="badge">Embaralhar
+            <select id="qbShuffle" class="input" style="width:120px">
+              <option value="yes" selected>Sim</option>
+              <option value="no">Não</option>
+            </select>
+          </label>
+          <button class="btn" id="qbSave">Salvar config</button>
+          <button class="btn secondary" id="qbClear">Limpar perguntas</button>
+          <span id="qbStatus" class="badge">0 perguntas</span>
+        </div>
+        <div id="qbList" class="notes-grid"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="quizStart" disabled>Iniciar quiz</button>
+        </div>
+      </div>
+
+      <div id="quizPlay" class="hidden">
+        <div class="row" style="justify-content:space-between">
+          <div><span id="qpIndex">1</span>/<span id="qpTotal">1</span> • <span id="qpScore">0</span> pts</div>
+          <div>Tempo: <span id="qpTimer" class="timer">00:30</span></div>
+        </div>
+        <h3 id="qpQuestion" style="margin:10px 0"></h3>
+        <input id="qpInput" class="input" placeholder="Sua resposta" />
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="qpSubmit">Responder</button>
+          <button class="btn secondary" id="qpSkip">Pular</button>
+        </div>
+        <p id="qpFeedback" class="hint" style="margin-top:10px"></p>
+      </div>
+
+      <div id="quizResult" class="hidden">
+        <h3>Resultado</h3>
+        <p><strong>Pontuação:</strong> <span id="qrScore">0</span> / <span id="qrTotal">0</span></p>
+        <button class="btn" id="qrRestart">Refazer</button>
+      </div>
+    </section>
+
+    <p class="footer">© UniTools – vídeos, documentos, notas e quizzes. Local-first.</p>
+  </div>
+
+  <script>
+    // ===== YouTube =====
+    const ytUrl=document.getElementById('ytUrl');
+    const ytPlayer=document.getElementById('ytPlayer');
+    const ytError=document.getElementById('ytError');
+    document.getElementById('playBtn').addEventListener('click',()=>{
+      const raw=(ytUrl.value||'').trim(); let id=null;
+      try { const u=new URL(raw); if(u.searchParams.get('v')) id=u.searchParams.get('v'); else if(u.hostname.includes('youtu.be')) id=u.pathname.split('/').filter(Boolean)[0]||null; else { const p=u.pathname.split('/').filter(Boolean); if(['shorts','live','embed'].includes(p[0])) id=p[1]||null; } if(!id){ const m=raw.match(/[?&]v=([a-zA-Z0-9_-]{11})/); if(m) id=m[1]; } }
+      catch(e){ if(raw.length===11) id=raw; }
+      if(id){ ytPlayer.src='https://www.youtube.com/embed/'+id+'?rel=0&modestbranding=1'; ytError.classList.add('hidden'); }
+      else { ytPlayer.removeAttribute('src'); ytError.classList.remove('hidden'); }
+    });
+    document.getElementById('clearYT').addEventListener('click',()=>{ ytPlayer.removeAttribute('src'); ytUrl.value=''; ytError.classList.add('hidden'); });
+
+    // ===== Documentos (PDF / DOCX / PPTX) =====
+    const fileBtn=document.getElementById('fileBtn');
+    const fileInput=document.getElementById('fileInput');
+    const fileName=document.getElementById('fileName');
+    const clearFile=document.getElementById('clearFile');
+    const dropZone=document.getElementById('dropZone');
+    const pdfWrap=document.getElementById('pdfWrap');
+    const pdfViewer=document.getElementById('pdfViewer');
+    const pdfFullBtn=document.getElementById('pdfFullBtn');
+    const docxViewer=document.getElementById('docxViewer');
+    const pptxViewer=document.getElementById('pptxViewer');
+    const openWrap=document.getElementById('openWrap');
+    const openLink=document.getElementById('openLink');
+    let currentUrl;
+
+    function resetViewers(){
+      pdfViewer.style.display='none'; pdfViewer.removeAttribute('src');
+      docxViewer.style.display='none'; docxViewer.innerHTML='';
+      pptxViewer.style.display='none'; $(pptxViewer).empty();
+    }
+
+    async function handleLocalFile(file){
+      if(!file) return;
+      const type=file.type;
+      const isPDF=type==='application/pdf';
+      const isDOCX=type==='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const isPPTX=type==='application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      if(!isPDF && !isDOCX && !isPPTX){ alert('Selecione PDF, DOCX ou PPTX.'); return; }
+
+      if(currentUrl) URL.revokeObjectURL(currentUrl);
+      currentUrl=URL.createObjectURL(file);
+      fileName.textContent=`${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`;
+      openLink.href=currentUrl; openWrap.style.display='block';
+      resetViewers();
+
+      if(isPDF){
+        pdfViewer.style.display='block';
+        pdfViewer.src=currentUrl+'#toolbar=1&navpanes=1&page=1&zoom=page-fit';
+        return;
+      }
+
+      if(isDOCX){
+        docxViewer.style.display='block';
+        try{ const ab=await file.arrayBuffer(); window.docx?.preview(new Blob([ab]), docxViewer, { inWrapper:true, breakPages:true }); }
+        catch(e){ console.error(e); alert('Não foi possível renderizar o DOCX.'); }
+        return;
+      }
+
+      if(isPPTX){
+        pptxViewer.style.display='block';
+        try{
+          // Tentativa 1: passar o File direto (funciona sem CORS)
+          $(pptxViewer).pptxToHtml({
+            file: file,           // <- usa o objeto File local
+            slideMode: true,
+            slidesScale: 'fit',
+            keyBoardShortCut: true
+          });
+        } catch(e1){
+          console.warn('pptxToHtml(file) falhou, tentando via blob URL…', e1);
+          try{
+            // Tentativa 2: fallback para blob URL
+            $(pptxViewer).pptxToHtml({
+              pptxFileUrl: currentUrl,
+              slideMode: true,
+              slidesScale: 'fit',
+              keyBoardShortCut: true
+            });
+          } catch(e2){
+            console.error(e2);
+            alert('Não foi possível renderizar o PPTX. Experimente abrir em nova aba.');
+          }
+        }
+        return;
+      }
+    }
+
+    fileBtn.addEventListener('click',()=>fileInput.click());
+    fileInput.addEventListener('change',()=>handleLocalFile(fileInput.files?.[0]));
+    ['dragenter','dragover'].forEach(evt=>dropZone.addEventListener(evt,e=>{ e.preventDefault(); e.stopPropagation(); dropZone.classList.add('drag'); }));
+    ;['dragleave','drop'].forEach(evt=>dropZone.addEventListener(evt,e=>{ e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('drag'); }));
+    dropZone.addEventListener('drop',e=>handleLocalFile(e.dataTransfer?.files?.[0]));
+    clearFile.addEventListener('click',()=>{ if(currentUrl) URL.revokeObjectURL(currentUrl); currentUrl=undefined; resetViewers(); fileInput.value=''; fileName.textContent='Nenhum arquivo'; openWrap.style.display='none'; openLink.removeAttribute('href'); });
+
+    // Entrar/sair de tela cheia no wrapper do PDF (preenche a tela)
+    pdfFullBtn.addEventListener('click', () => {
+      const el = pdfWrap;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+      const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      if (document.fullscreenElement === el || document.webkitFullscreenElement === el || document.msFullscreenElement === el) { exit.call(document); }
+      else { req.call(el); }
+    });
+    function onFsChange() {
+      const isFS = document.fullscreenElement === pdfWrap || document.webkitFullscreenElement === pdfWrap || document.msFullscreenElement === pdfWrap;
+      if (isFS) { pdfViewer.style.width='100vw'; pdfViewer.style.height='100vh'; }
+      else { pdfViewer.style.width=''; pdfViewer.style.height=''; }
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    document.addEventListener('MSFullscreenChange', onFsChange);
+
+    // ===== Notas (cards) =====
+    const LS_NOTES='notes_v2';
+    const noteTitle=document.getElementById('noteTitle');
+    const noteBody=document.getElementById('noteBody');
+    const addNoteBtn=document.getElementById('addNoteBtn');
+    const notesGrid=document.getElementById('notesGrid');
+    const notesCount=document.getElementById('notesCount');
+    const exportNotes=document.getElementById('exportNotes');
+    const clearNotes=document.getElementById('clearNotes');
+
+    function loadNotes(){ try{ return JSON.parse(localStorage.getItem(LS_NOTES)||'[]'); }catch(e){ return []; } }
+    function setNotes(arr){ localStorage.setItem(LS_NOTES, JSON.stringify(arr)); }
+    function renderNotes(){ const arr=loadNotes(); notesCount.textContent=`${arr.length} nota${arr.length===1?'':'s'}`; notesGrid.innerHTML=arr.map(n=>`<div class=\"note-card\" data-id=\"${n.id}\"><div class=\"note-title\" contenteditable=\"true\">${n.title||'Sem título'}</div><div class=\"note-body\" contenteditable=\"true\">${(n.body||'').replace(/</g,'&lt;')}</div><div class=\"note-meta\">${new Date(n.updated||n.created).toLocaleString()}</div><div class=\"note-actions\"><button class=\"btn small\" data-act=\"save\">Salvar</button><button class=\"btn small secondary\" data-act=\"del\">Excluir</button></div></div>`).join(''); }
+    addNoteBtn.addEventListener('click',()=>{ const title=(noteTitle.value||'').trim(); const body=(noteBody.value||'').trim(); if(!title && !body){ alert('Escreva um título ou conteúdo.'); return; } const arr=loadNotes(); const id=(crypto.randomUUID?crypto.randomUUID():String(Date.now())); arr.unshift({id,title,body,created:Date.now(),updated:Date.now()}); setNotes(arr); noteTitle.value=''; noteBody.value=''; renderNotes(); });
+    notesGrid.addEventListener('click',e=>{ const btn=e.target.closest('button'); if(!btn) return; const card=e.target.closest('.note-card'); const id=card?.dataset?.id; if(!id) return; const arr=loadNotes(); const i=arr.findIndex(n=>n.id===id); if(i<0) return; if(btn.dataset.act==='del'){ if(confirm('Excluir esta nota?')){ arr.splice(i,1); setNotes(arr); renderNotes(); } } else { const title=card.querySelector('.note-title').textContent.trim(); const body=card.querySelector('.note-body').textContent.trim(); arr[i]={...arr[i], title, body, updated:Date.now()}; setNotes(arr); renderNotes(); } });
+    exportNotes.addEventListener('click',()=>{ const blob=new Blob([localStorage.getItem(LS_NOTES)||'[]'],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='notas.json'; a.click(); URL.revokeObjectURL(url); });
+    clearNotes.addEventListener('click',()=>{ if(confirm('Apagar todas as notas?')){ localStorage.removeItem(LS_NOTES); renderNotes(); } });
+    renderNotes();
+
+    // ===== Quiz (perguntas + tempo) =====
+    const LS_QUIZ='quiz_bank_v1';
+    const LS_QCFG='quiz_cfg_v1';
+    const qbQuestion=document.getElementById('qbQuestion');
+    const qbAnswer=document.getElementById('qbAnswer');
+    const qbAdd=document.getElementById('qbAdd');
+    const qbTime=document.getElementById('qbTime');
+    const qbShuffle=document.getElementById('qbShuffle');
+    const qbSave=document.getElementById('qbSave');
+    const qbClear=document.getElementById('qbClear');
+    const qbList=document.getElementById('qbList');
+    const qbStatus=document.getElementById('qbStatus');
+    const quizStart=document.getElementById('quizStart');
+    const quizBuilder=document.getElementById('quizBuilder');
+
+    const quizPlay=document.getElementById('quizPlay');
+    const qpIndex=document.getElementById('qpIndex');
+    const qpTotal=document.getElementById('qpTotal');
+    const qpScore=document.getElementById('qpScore');
+    const qpTimer=document.getElementById('qpTimer');
+    const qpQuestion=document.getElementById('qpQuestion');
+    const qpInput=document.getElementById('qpInput');
+    const qpSubmit=document.getElementById('qpSubmit');
+    const qpSkip=document.getElementById('qpSkip');
+    const qpFeedback=document.getElementById('qpFeedback');
+    const quizResult=document.getElementById('quizResult');
+    const qrScore=document.getElementById('qrScore');
+    const qrTotal=document.getElementById('qrTotal');
+    const qrRestart=document.getElementById('qrRestart');
+
+    function loadBank(){ try{return JSON.parse(localStorage.getItem(LS_QUIZ)||'[]');}catch(e){return[];} }
+    function saveBank(arr){ localStorage.setItem(LS_QUIZ, JSON.stringify(arr)); renderBank(); }
+    function renderBank(){ const bank=loadBank(); qbList.innerHTML=bank.map((q,i)=>`<div class=\"note-card\"><div class=\"note-title\">#${i+1} ${q.q}</div><div class=\"note-body hint\">Resposta: ${q.a}</div><div class=\"note-actions\"><button class=\"btn small\" data-edit=\"${i}\">Editar</button><button class=\"btn small secondary\" data-del=\"${i}\">Excluir</button></div></div>`).join(''); qbStatus.textContent=`${bank.length} pergunta${bank.length===1?'':'s'}`; quizStart.disabled = bank.length===0; }
+    qbList.addEventListener('click',e=>{ const bank=loadBank(); const ed=e.target.getAttribute('data-edit'); const de=e.target.getAttribute('data-del'); if(ed!==null){ const i=+ed; const nq=prompt('Editar pergunta:', bank[i].q); if(nq===null) return; const na=prompt('Editar resposta:', bank[i].a); if(na===null) return; bank[i]={q:nq,a:na}; saveBank(bank); } if(de!==null){ const i=+de; if(confirm('Excluir esta pergunta?')){ bank.splice(i,1); saveBank(bank); } } });
+    qbAdd.addEventListener('click',()=>{ const q=(qbQuestion.value||'').trim(); const a=(qbAnswer.value||'').trim(); if(!q||!a){ alert('Preencha pergunta e resposta.'); return; } const bank=loadBank(); bank.push({q,a}); saveBank(bank); qbQuestion.value=''; qbAnswer.value=''; });
+    function loadCfg(){ try{return JSON.parse(localStorage.getItem(LS_QCFG)||'{}');}catch(e){return{};} }
+    function saveCfg(cfg){ localStorage.setItem(LS_QCFG, JSON.stringify(cfg)); }
+    function loadSettingsUI(){ const cfg=loadCfg(); if(cfg.time) qbTime.value=cfg.time; if(typeof cfg.shuffle==='boolean') qbShuffle.value=cfg.shuffle?'yes':'no'; }
+    qbSave.addEventListener('click',()=>{ saveCfg({ time:Math.max(5,Math.min(600,parseInt(qbTime.value||'30',10))), shuffle: qbShuffle.value==='yes' }); alert('Configuração salva!'); });
+    qbClear.addEventListener('click',()=>{ if(confirm('Apagar TODAS as perguntas?')){ localStorage.removeItem(LS_QUIZ); renderBank(); } });
+
+    // Execução
+    let run={list:[], idx:0, score:0, time:30, tId:null};
+    function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+    function fmt(s){ const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return `${m}:${ss}`; }
+    function startQuiz(){ const bank=loadBank(); if(bank.length===0){ alert('Adicione perguntas primeiro.'); return; } const cfg=loadCfg(); run={ list:(cfg.shuffle!==false?shuffle(bank.slice()):bank.slice()), idx:0, score:0, time:parseInt(cfg.time||30,10), tId:null }; qpTotal.textContent=run.list.length; qpScore.textContent='0'; quizBuilder.style.display='none'; quizPlay.classList.remove('hidden'); nextQuestion(true); }
+    function stopTimer(){ if(run.tId){ clearInterval(run.tId); run.tId=null; } }
+    function startTimer(){ let left=run.time; qpTimer.textContent=fmt(left); stopTimer(); run.tId=setInterval(()=>{ left--; qpTimer.textContent=fmt(left); if(left<=0){ stopTimer(); qpFeedback.textContent='Tempo esgotado! Resposta: '+run.list[run.idx].a; setTimeout(()=>nextQuestion(false), 800); } },1000); }
+    function nextQuestion(first){ if(!first) run.idx++; if(run.idx>=run.list.length){ finishQuiz(); return; } const cur=run.list[run.idx]; qpIndex.textContent=String(run.idx+1); qpQuestion.textContent=cur.q; qpInput.value=''; qpFeedback.textContent=''; startTimer(); }
+    function submitAnswer(skip){ stopTimer(); const cur=run.list[run.idx]; const ans= skip? '' : (qpInput.value||'').trim().toLowerCase(); const ok=(cur.a||'').trim().toLowerCase(); if(!skip && ans===ok){ run.score++; qpFeedback.textContent='Correto!'; } else { qpFeedback.textContent='Errado. Correto: '+cur.a; } qpScore.textContent=String(run.score); setTimeout(()=>nextQuestion(false), 600); }
+    function finishQuiz(){ quizPlay.classList.add('hidden'); quizResult.classList.remove('hidden'); qrScore.textContent=String(run.score); qrTotal.textContent=String(run.list.length); quizBuilder.style.display='block'; stopTimer(); }
+    quizStart.addEventListener('click', startQuiz);
+    qpSubmit.addEventListener('click', ()=>submitAnswer(false));
+    qpSkip.addEventListener('click', ()=>submitAnswer(true));
+    qrRestart.addEventListener('click', startQuiz);
+    renderBank(); loadSettingsUI();
+  </script>
+</body>
+</html>
